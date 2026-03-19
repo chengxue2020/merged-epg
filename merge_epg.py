@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 MASTER_LIST_FILE = "master_channels.txt"
 EPG_SOURCES_FILE = "epg_sources.txt"
 OUTPUT_XML_GZ = "merged.xml.gz"
-OUTPUT_LOCAL_XML_GZ = "local.xml.gz"   # <--- local-only file
+OUTPUT_LOCAL_XML_GZ = "merged_local.xml.gz"
 INDEX_HTML = "index.html"
 
 LOCAL_FEED_URL = "https://epgshare01.online/epgshare01/epg_ripper_US_LOCALS1.xml.gz"
@@ -117,15 +117,18 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
             raw_id = elem.attrib.get("id", "")
             display = elem.findtext("display-name") or raw_id
 
+            # Skip pacific
             if "pacific" in display.lower():
                 elem.clear()
                 continue
 
+            # Deduplicate <icon>
             icons = elem.findall("icon")
             for i, icon in enumerate(icons):
                 if i > 0:
                     elem.remove(icon)
 
+            # Local exact match
             if display in local_channels:
                 channel_matches[raw_id] = display
                 programmes.append((raw_id, ET.tostring(elem, encoding="utf-8")))
@@ -212,7 +215,7 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
 parse_xml_stream.seen_programmes = set()
 
 # -----------------------------
-# SAVE XML
+# SAVE MERGED XML
 # -----------------------------
 def save_merged_xml(channel_id_map, programmes, filename):
     with gzip.open(filename, "wb") as f_out:
@@ -230,6 +233,24 @@ def save_merged_xml(channel_id_map, programmes, filename):
                 f_out.write(prog_xml)
 
         f_out.write(b"\n</tv>")
+
+# -----------------------------
+# CREATE LOCAL XML FROM MERGED
+# -----------------------------
+def create_local_from_merged(all_channel_map, all_programmes, local_channels):
+    """
+    Writes a new XML GZ containing only OTA/local channels from the merged XML,
+    preserving the same format as merged.xml.gz.
+    """
+    # Filter channels for local only
+    local_channel_map = {raw_id: disp for raw_id, disp in all_channel_map.items() if disp in local_channels}
+
+    # Filter programmes for local channels
+    local_programmes = [(raw_id, prog_xml) for raw_id, prog_xml in all_programmes if raw_id in local_channel_map]
+
+    # Save using same function as merged
+    save_merged_xml(local_channel_map, local_programmes, OUTPUT_LOCAL_XML_GZ)
+    print(f"Local XML written: {OUTPUT_LOCAL_XML_GZ}")
 
 # -----------------------------
 # INDEX REPORT
@@ -326,12 +347,8 @@ def main():
     save_merged_xml(all_channel_map, all_programmes, OUTPUT_XML_GZ)
     print(f"Full merged XML written: {OUTPUT_XML_GZ}")
 
-    # -----------------------------
-    # SAVE LOCAL XML (OTA + local channels only)
-    # -----------------------------
-    local_programmes = [(raw, xml) for raw, xml in all_programmes if raw in local_channels]
-    save_merged_xml({raw: raw for raw, _ in local_programmes}, local_programmes, OUTPUT_LOCAL_XML_GZ)
-    print(f"Local XML written: {OUTPUT_LOCAL_XML_GZ}")
+    # Save local XML using same format as merged, but only OTA/local channels
+    create_local_from_merged(all_channel_map, all_programmes, local_channels)
 
     # Update index
     update_index(master_display, matched_display_names)
