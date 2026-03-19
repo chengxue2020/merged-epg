@@ -117,25 +117,21 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
             raw_id = elem.attrib.get("id", "")
             display = elem.findtext("display-name") or raw_id
 
-            # Skip pacific
             if "pacific" in display.lower():
                 elem.clear()
                 continue
 
-            # Deduplicate <icon>
             icons = elem.findall("icon")
             for i, icon in enumerate(icons):
                 if i > 0:
                     elem.remove(icon)
 
-            # Local exact match
             if display in local_channels:
                 channel_matches[raw_id] = display
                 programmes.append((raw_id, ET.tostring(elem, encoding="utf-8")))
                 elem.clear()
                 continue
 
-            # Non-local fuzzy match
             cleaned_display = clean_text(display)
             cleaned_id = clean_text(raw_id)
             matched_display = None
@@ -238,13 +234,8 @@ def save_merged_xml(channel_id_map, programmes, filename):
 # CREATE LOCAL XML FROM MERGED
 # -----------------------------
 def create_local_from_merged(all_programmes, local_channels):
-    new_root = ET.Element("tv", attrib={"generator-info-name": "CustomEPG Local"})
-    for raw_id, prog_xml in all_programmes:
-        if raw_id in local_channels:
-            elem = ET.fromstring(prog_xml)
-            new_root.append(elem)
-
-    save_merged_xml({}, [(None, ET.tostring(new_root, encoding="utf-8"))], OUTPUT_LOCAL_XML_GZ)
+    local_programmes = [(raw_id, prog_xml) for raw_id, prog_xml in all_programmes if raw_id in local_channels]
+    save_merged_xml({raw_id: raw_id for raw_id, _ in local_programmes}, local_programmes, OUTPUT_LOCAL_XML_GZ)
     print(f"Local XML written: {OUTPUT_LOCAL_XML_GZ}")
 
 # -----------------------------
