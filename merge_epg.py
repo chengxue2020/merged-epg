@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 MASTER_LIST_FILE = "master_channels.txt"
 EPG_SOURCES_FILE = "epg_sources.txt"
 OUTPUT_XML_GZ = "merged.xml.gz"
-OUTPUT_LOCAL_XML_GZ = "merged_local.xml.gz"
+OUTPUT_LOCAL_XML_GZ = "local.xml.gz"
 INDEX_HTML = "index.html"
 
 LOCAL_FEED_URL = "https://epgshare01.online/epgshare01/epg_ripper_US_LOCALS1.xml.gz"
