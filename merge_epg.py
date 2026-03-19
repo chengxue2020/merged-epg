@@ -233,8 +233,17 @@ def save_merged_xml(channel_id_map, programmes, filename):
 # -----------------------------
 # CREATE LOCAL XML FROM MERGED
 # -----------------------------
-def create_local_from_merged(all_programmes, local_channels):
-    local_programmes = [(raw_id, prog_xml) for raw_id, prog_xml in all_programmes if raw_id in local_channels]
+def create_local_from_merged(all_programmes, local_channels, all_channel_map):
+    local_programmes = []
+    for raw_id, prog_xml in all_programmes:
+        display_name = all_channel_map.get(raw_id)
+        if display_name in local_channels:
+            local_programmes.append((raw_id, prog_xml))
+
+    if not local_programmes:
+        print("Warning: No local programmes found to write!")
+        return
+
     save_merged_xml({raw_id: raw_id for raw_id, _ in local_programmes}, local_programmes, OUTPUT_LOCAL_XML_GZ)
     print(f"Local XML written: {OUTPUT_LOCAL_XML_GZ}")
 
@@ -334,7 +343,7 @@ def main():
     print(f"Full merged XML written: {OUTPUT_XML_GZ}")
 
     # Save local XML
-    create_local_from_merged(all_programmes, local_channels)
+    create_local_from_merged(all_programmes, local_channels, all_channel_map)
 
     # Update index
     update_index(master_display, matched_display_names)
