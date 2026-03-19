@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 MASTER_LIST_FILE = "master_channels.txt"
 EPG_SOURCES_FILE = "epg_sources.txt"
 OUTPUT_XML_GZ = "merged.xml.gz"
+OUTPUT_LOCAL_XML_GZ = "merged_local.xml.gz"
 INDEX_HTML = "index.html"
 
 LOCAL_FEED_URL = "https://epgshare01.online/epgshare01/epg_ripper_US_LOCALS1.xml.gz"
@@ -221,8 +222,8 @@ parse_xml_stream.seen_programmes = set()
 # -----------------------------
 # SAVE MERGED XML
 # -----------------------------
-def save_merged_xml(channel_id_map, programmes):
-    with gzip.open(OUTPUT_XML_GZ, "wb") as f_out:
+def save_merged_xml(channel_id_map, programmes, output_file=OUTPUT_XML_GZ):
+    with gzip.open(output_file, "wb") as f_out:
         f_out.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
         f_out.write(b"<tv generator-info-name=\"CustomEPG\">\n")
 
@@ -239,57 +240,8 @@ def save_merged_xml(channel_id_map, programmes):
         f_out.write(b"\n</tv>")
 
 # -----------------------------
-# INDEX REPORT
-# -----------------------------
-def update_index(master_display, matched_display_names):
-    found = []
-    not_found = []
-
-    size_mb = os.path.getsize(OUTPUT_XML_GZ) / (1024 * 1024)
-    timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M:%S %Z")
-
-    for channel in master_display:
-        if channel in matched_display_names:
-            found.append(channel)
-        else:
-            not_found.append(channel)
-
-    def make_table(ch_list):
-        rows = "".join(f"<tr><td>{c}</td></tr>" for c in sorted(ch_list))
-        return f"<details><summary>Click to expand ({len(ch_list)})</summary><table>{rows}</table></details>"
-
-    html = f"""
-<html>
-<head>
-<title>EPG Merge Report</title>
-<style>
-table {{border-collapse: collapse;}}
-td {{border: 1px solid #ccc; padding: 4px;}}
-details {{margin-bottom: 10px;}}
-</style>
-</head>
-<body>
-<h2>EPG Merge Report</h2>
-<p>Generated: {timestamp}</p>
-<p>Total channels in master list: {len(master_display)}</p>
-<p>Channels found: {len(found)}</p>
-<p>Channels not found: {len(not_found)}</p>
-<p>Final merged XML.GZ size: {size_mb:.2f} MB</p>
-
-<h3>Found Channels</h3>{make_table(found)}
-<h3>Not Found Channels</h3>{make_table(not_found)}
-
-</body>
-</html>
-"""
-    with open(INDEX_HTML, "w", encoding="utf-8") as f:
-        f.write(html)
-
-# -----------------------------
 # CREATE LOCAL XML FROM MERGED
 # -----------------------------
-OUTPUT_LOCAL_XML_GZ = "merged_local.xml.gz"
-
 def get_local_channel_subset():
     return set([
         # LOCAL CHANNELS
@@ -358,6 +310,53 @@ def create_local_from_merged():
     print(f"Local channels: {len(allowed_ids)}")
 
 # -----------------------------
+# INDEX REPORT
+# -----------------------------
+def update_index(master_display, matched_display_names):
+    found = []
+    not_found = []
+
+    size_mb = os.path.getsize(OUTPUT_XML_GZ) / (1024 * 1024)
+    timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    for channel in master_display:
+        if channel in matched_display_names:
+            found.append(channel)
+        else:
+            not_found.append(channel)
+
+    def make_table(ch_list):
+        rows = "".join(f"<tr><td>{c}</td></tr>" for c in sorted(ch_list))
+        return f"<details><summary>Click to expand ({len(ch_list)})</summary><table>{rows}</table></details>"
+
+    html = f"""
+<html>
+<head>
+<title>EPG Merge Report</title>
+<style>
+table {{border-collapse: collapse;}}
+td {{border: 1px solid #ccc; padding: 4px;}}
+details {{margin-bottom: 10px;}}
+</style>
+</head>
+<body>
+<h2>EPG Merge Report</h2>
+<p>Generated: {timestamp}</p>
+<p>Total channels in master list: {len(master_display)}</p>
+<p>Channels found: {len(found)}</p>
+<p>Channels not found: {len(not_found)}</p>
+<p>Final merged XML.GZ size: {size_mb:.2f} MB</p>
+
+<h3>Found Channels</h3>{make_table(found)}
+<h3>Not Found Channels</h3>{make_table(not_found)}
+
+</body>
+</html>
+"""
+    with open(INDEX_HTML, "w", encoding="utf-8") as f:
+        f.write(html)
+
+# -----------------------------
 # MAIN
 # -----------------------------
 def main():
@@ -400,6 +399,7 @@ def main():
         print(f"  Programmes kept: {len(programmes)}")
 
     save_merged_xml(all_channel_map, all_programmes)
+    create_local_from_merged()
     update_index(master_display, matched_display_names)
 
     size_mb = os.path.getsize(OUTPUT_XML_GZ) / (1024 * 1024)
