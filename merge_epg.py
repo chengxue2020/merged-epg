@@ -63,7 +63,7 @@ def split_master(master_display):
     non_local = set()
 
     for ch in master_display:
-        if re.match(r"^[WK][A-Z]{2,4}-DT$", ch):
+        if re.match(r"^[WK][A-Z]{2,4}-DT$", ch) or "MASN" in ch or "NBC Sports" in ch or "Comcast SportsNet" in ch or "NewsChannel 8" in ch or "WJZ 13" in ch or "WMAR 2" in ch or "WMPB" in ch:
             local.add(ch)
         else:
             non_local.add(ch)
@@ -126,12 +126,6 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
                 if i > 0:
                     elem.remove(icon)
 
-            if display in local_channels:
-                channel_matches[raw_id] = display
-                programmes.append((raw_id, ET.tostring(elem, encoding="utf-8")))
-                elem.clear()
-                continue
-
             cleaned_display = clean_text(display)
             cleaned_id = clean_text(raw_id)
             matched_display = None
@@ -154,22 +148,16 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
                         matched_display = master_disp
                         break
 
-            if matched_display:
-                if "pacific" in matched_display.lower():
-                    elem.clear()
-                    continue
+            if matched_display and matched_display in local_channels:
                 channel_matches[raw_id] = matched_display
-
                 icons_prog = elem.findall("icon")
                 for i, icon in enumerate(icons_prog):
                     if i > 0:
                         elem.remove(icon)
-
                 for empty_tag in ["premiere", "previously-shown"]:
                     for t in elem.findall(empty_tag):
                         if not (t.text and t.text.strip()):
                             elem.remove(t)
-
                 programmes.append((raw_id, ET.tostring(elem, encoding="utf-8")))
 
             elem.clear()
@@ -231,12 +219,19 @@ def save_merged_xml(channel_id_map, programmes, filename):
         f_out.write(b"\n</tv>")
 
 # -----------------------------
-# CREATE LOCAL XML FROM MERGED
+# CREATE LOCAL XML FROM ALL PROGRAMMES
 # -----------------------------
 def create_local_xml(all_programmes, local_channels):
-    local_programmes = [(raw, xml) for raw, xml in all_programmes if raw in local_channels]
-    save_merged_xml({raw: raw for raw, _ in local_programmes}, local_programmes, OUTPUT_LOCAL_XML_GZ)
-    print(f"Local merged XML written: {OUTPUT_LOCAL_XML_GZ}")
+    local_channel_map = {}
+    local_programmes = []
+
+    for raw_id, prog_xml in all_programmes:
+        if raw_id in local_channels:
+            local_channel_map[raw_id] = raw_id
+            local_programmes.append((raw_id, prog_xml))
+
+    save_merged_xml(local_channel_map, local_programmes, OUTPUT_LOCAL_XML_GZ)
+    print(f"Local XML written: {OUTPUT_LOCAL_XML_GZ}")
 
 # -----------------------------
 # INDEX REPORT
@@ -309,18 +304,11 @@ def main():
         if not content:
             continue
 
-        is_local_feed = (url == LOCAL_FEED_URL)
-
         channel_map, programmes = parse_xml_stream(
             content,
             master_cleaned,
-            local_channels
+            local_channels.union(non_local_channels)
         )
-
-        if is_local_feed:
-            channel_map = {raw: disp for raw, disp in channel_map.items() if disp in local_channels}
-        else:
-            channel_map = {raw: disp for raw, disp in channel_map.items() if disp in non_local_channels}
 
         all_channel_map.update(channel_map)
         all_programmes.extend(programmes)
@@ -333,17 +321,17 @@ def main():
     save_merged_xml(all_channel_map, all_programmes, OUTPUT_XML_GZ)
     print(f"Full merged XML written: {OUTPUT_XML_GZ}")
 
-    # Save local XML exactly like merged
+    # Save local XML (OTA + regional channels only)
     create_local_xml(all_programmes, local_channels)
-
+    
     # Update index
     update_index(master_display, matched_display_names)
 
     print("\nFinished.")
     print(f"Final channels: {len(set(all_channel_map.values()))}")
     print(f"Final programmes: {len(all_programmes)}")
-    print(f"Output merged size: {os.path.getsize(OUTPUT_XML_GZ)/(1024*1024):.2f} MB")
-    print(f"Output local size: {os.path.getsize(OUTPUT_LOCAL_XML_GZ)/(1024*1024):.2f} MB")
+    print(f"Merged XML size: {os.path.getsize(OUTPUT_XML_GZ)/(1024*1024):.2f} MB")
+    print(f"Local XML size: {os.path.getsize(OUTPUT_LOCAL_XML_GZ)/(1024*1024):.2f} MB")
 
 
 if __name__ == "__main__":
