@@ -97,7 +97,7 @@ def fetch_content(url):
 # PARSE XML STREAM
 # -----------------------------
 def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7):
-    channel_matches = {}   # raw_id -> master_display_name
+    channel_matches = {}
     programmes = []
 
     cutoff = datetime.utcnow() + timedelta(days=days_limit)
@@ -112,30 +112,30 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
 
     for event, elem in context:
 
-        # ------------------ CHANNEL ------------------
+        # CHANNEL
         if elem.tag == "channel":
             raw_id = elem.attrib.get("id", "")
             display = elem.findtext("display-name") or raw_id
 
-            # Skip channels containing "pacific"
+            # Skip pacific
             if "pacific" in display.lower():
                 elem.clear()
                 continue
 
-            # Deduplicate repeated <icon> in channel
+            # Deduplicate <icon>
             icons = elem.findall("icon")
             for i, icon in enumerate(icons):
                 if i > 0:
                     elem.remove(icon)
 
-            # Local DT channels: exact match
+            # Local exact match
             if display in local_channels:
                 channel_matches[raw_id] = display
                 programmes.append((raw_id, ET.tostring(elem, encoding="utf-8")))
                 elem.clear()
                 continue
 
-            # Non-local channels: previous matching logic
+            # Non-local fuzzy match
             cleaned_display = clean_text(display)
             cleaned_id = clean_text(raw_id)
             matched_display = None
@@ -164,13 +164,11 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
                     continue
                 channel_matches[raw_id] = matched_display
 
-                # Deduplicate <icon> in programme element
                 icons_prog = elem.findall("icon")
                 for i, icon in enumerate(icons_prog):
                     if i > 0:
                         elem.remove(icon)
 
-                # Remove empty optional tags
                 for empty_tag in ["premiere", "previously-shown"]:
                     for t in elem.findall(empty_tag):
                         if not (t.text and t.text.strip()):
@@ -180,7 +178,7 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
 
             elem.clear()
 
-        # ------------------ PROGRAMME ------------------
+        # PROGRAMME
         elif elem.tag == "programme":
             raw_channel = elem.attrib.get("channel")
             start_str = elem.attrib.get("start")
@@ -199,17 +197,14 @@ def parse_xml_stream(content_bytes, master_cleaned, local_channels, days_limit=7
             if start_dt <= cutoff:
                 key = (raw_channel, start_str, ET.tostring(elem, encoding="utf-8"))
                 if key not in parse_xml_stream.seen_programmes:
-                    # Deduplicate <icon> in programme element
                     icons_prog = elem.findall("icon")
                     for i, icon in enumerate(icons_prog):
                         if i > 0:
                             elem.remove(icon)
-                    # Remove empty optional tags
                     for empty_tag in ["premiere", "previously-shown"]:
                         for t in elem.findall(empty_tag):
                             if not (t.text and t.text.strip()):
                                 elem.remove(t)
-
                     programmes.append((raw_channel, ET.tostring(elem, encoding="utf-8")))
                     parse_xml_stream.seen_programmes.add(key)
 
@@ -222,8 +217,8 @@ parse_xml_stream.seen_programmes = set()
 # -----------------------------
 # SAVE MERGED XML
 # -----------------------------
-def save_merged_xml(channel_id_map, programmes, output_file=OUTPUT_XML_GZ):
-    with gzip.open(output_file, "wb") as f_out:
+def save_merged_xml(channel_id_map, programmes, filename):
+    with gzip.open(filename, "wb") as f_out:
         f_out.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
         f_out.write(b"<tv generator-info-name=\"CustomEPG\">\n")
 
@@ -242,72 +237,15 @@ def save_merged_xml(channel_id_map, programmes, output_file=OUTPUT_XML_GZ):
 # -----------------------------
 # CREATE LOCAL XML FROM MERGED
 # -----------------------------
-def get_local_channel_subset():
-    return set([
-        # LOCAL CHANNELS
-        "WRC-DT","COZI TV","CRIMES","Oxygen",
-        "WTTG-DT","BUZZR","Start TV",
-        "WJLA-DT","Charge!","Comet","ROAR",
-        "WUSA-DT","Crime TV","Quest","The Nest","QVC",
-        "WBAL-DT","MeTV","Story Television","GetTV",
-        "WFDC-DT","GRIT","UniMas",
-        "WDCA-DT","Movies!","Heroes & Icons","Fox Weather",
-        "MPT-DT","MPT-2","MPT Kids","NHK World Japan",
-        "WDVM-SD",
-        "WETA-HD","WETA UK","WETA Kids","WORLD Channel","Metro",
-        "WHUT","PBS Kids",
-        "WZDC","XITOS",
-        "WDCW-DT","Antenna TV",
-        "Bounce","Court TV","Laff","Busted","HSN","AltaVsn","DEFY","WNUV-DT","Telexitos",
+def create_local_from_merged(all_programmes, local_channels):
+    new_root = ET.Element("tv", attrib={"generator-info-name": "CustomEPG Local"})
+    for raw_id, prog_xml in all_programmes:
+        if raw_id in local_channels:
+            elem = ET.fromstring(prog_xml)
+            new_root.append(elem)
 
-        # REGIONAL
-        "MASN (Mid-Atlantic Sports Network)",
-        "NBC Sports Washington",
-        "Comcast SportsNet Mid-Atlantic",
-        "NewsChannel 8 (WJLA News)",
-        "WJZ 13 (CBS Baltimore)",
-        "WMAR 2 (ABC Baltimore)",
-        "WMPB (PBS Maryland)"
-    ])
-
-def create_local_from_merged():
-    local_channels = get_local_channel_subset()
-    local_cleaned = set(clean_text(c) for c in local_channels)
-
-    print("\nCreating local XML from merged.xml.gz...")
-
-    with gzip.open(OUTPUT_XML_GZ, "rb") as f:
-        tree = ET.parse(f)
-
-    root = tree.getroot()
-
-    id_to_display = {}
-    for ch in root.findall("channel"):
-        ch_id = ch.attrib.get("id")
-        display = ch.findtext("display-name") or ch_id
-        id_to_display[ch_id] = display
-
-    allowed_ids = set()
-    for ch_id, display in id_to_display.items():
-        if clean_text(display) in local_cleaned:
-            allowed_ids.add(ch_id)
-
-    new_root = ET.Element("tv", attrib=root.attrib)
-
-    for ch in root.findall("channel"):
-        if ch.attrib.get("id") in allowed_ids:
-            new_root.append(ch)
-
-    for prog in root.findall("programme"):
-        if prog.attrib.get("channel") in allowed_ids:
-            new_root.append(prog)
-
-    with gzip.open(OUTPUT_LOCAL_XML_GZ, "wb") as f_out:
-        f_out.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
-        f_out.write(ET.tostring(new_root, encoding="utf-8"))
-
-    print(f"Local XML created: {OUTPUT_LOCAL_XML_GZ}")
-    print(f"Local channels: {len(allowed_ids)}")
+    save_merged_xml({}, [(None, ET.tostring(new_root, encoding="utf-8"))], OUTPUT_LOCAL_XML_GZ)
+    print(f"Local XML written: {OUTPUT_LOCAL_XML_GZ}")
 
 # -----------------------------
 # INDEX REPORT
@@ -316,7 +254,8 @@ def update_index(master_display, matched_display_names):
     found = []
     not_found = []
 
-    size_mb = os.path.getsize(OUTPUT_XML_GZ) / (1024 * 1024)
+    size_merged = os.path.getsize(OUTPUT_XML_GZ) / (1024 * 1024)
+    size_local = os.path.getsize(OUTPUT_LOCAL_XML_GZ) / (1024 * 1024)
     timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
     for channel in master_display:
@@ -345,7 +284,8 @@ details {{margin-bottom: 10px;}}
 <p>Total channels in master list: {len(master_display)}</p>
 <p>Channels found: {len(found)}</p>
 <p>Channels not found: {len(not_found)}</p>
-<p>Final merged XML.GZ size: {size_mb:.2f} MB</p>
+<p>Final merged XML.GZ size: {size_merged:.2f} MB (<a href="{OUTPUT_XML_GZ}">Download</a>)</p>
+<p>Final local XML.GZ size: {size_local:.2f} MB (<a href="{OUTPUT_LOCAL_XML_GZ}">Download</a>)</p>
 
 <h3>Found Channels</h3>{make_table(found)}
 <h3>Not Found Channels</h3>{make_table(not_found)}
@@ -398,12 +338,17 @@ def main():
         print(f"  Channels matched: {len(channel_map)}")
         print(f"  Programmes kept: {len(programmes)}")
 
-    save_merged_xml(all_channel_map, all_programmes)
-    create_local_from_merged()
+    # Save full merged XML
+    save_merged_xml(all_channel_map, all_programmes, OUTPUT_XML_GZ)
+    print(f"Full merged XML written: {OUTPUT_XML_GZ}")
+
+    # Save local XML
+    create_local_from_merged(all_programmes, local_channels)
+
+    # Update index
     update_index(master_display, matched_display_names)
 
     size_mb = os.path.getsize(OUTPUT_XML_GZ) / (1024 * 1024)
-
     print("\nFinished.")
     print(f"Final channels: {len(set(all_channel_map.values()))}")
     print(f"Final programmes: {len(all_programmes)}")
