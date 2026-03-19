@@ -286,6 +286,78 @@ details {{margin-bottom: 10px;}}
         f.write(html)
 
 # -----------------------------
+# CREATE LOCAL XML FROM MERGED
+# -----------------------------
+OUTPUT_LOCAL_XML_GZ = "merged_local.xml.gz"
+
+def get_local_channel_subset():
+    return set([
+        # LOCAL CHANNELS
+        "WRC-DT","COZI TV","CRIMES","Oxygen",
+        "WTTG-DT","BUZZR","Start TV",
+        "WJLA-DT","Charge!","Comet","ROAR",
+        "WUSA-DT","Crime TV","Quest","The Nest","QVC",
+        "WBAL-DT","MeTV","Story Television","GetTV",
+        "WFDC-DT","GRIT","UniMas",
+        "WDCA-DT","Movies!","Heroes & Icons","Fox Weather",
+        "MPT-DT","MPT-2","MPT Kids","NHK World Japan",
+        "WDVM-SD",
+        "WETA-HD","WETA UK","WETA Kids","WORLD Channel","Metro",
+        "WHUT","PBS Kids",
+        "WZDC","XITOS",
+        "WDCW-DT","Antenna TV",
+        "Bounce","Court TV","Laff","Busted","HSN","AltaVsn","DEFY","WNUV-DT","Telexitos",
+
+        # REGIONAL
+        "MASN (Mid-Atlantic Sports Network)",
+        "NBC Sports Washington",
+        "Comcast SportsNet Mid-Atlantic",
+        "NewsChannel 8 (WJLA News)",
+        "WJZ 13 (CBS Baltimore)",
+        "WMAR 2 (ABC Baltimore)",
+        "WMPB (PBS Maryland)"
+    ])
+
+def create_local_from_merged():
+    local_channels = get_local_channel_subset()
+    local_cleaned = set(clean_text(c) for c in local_channels)
+
+    print("\nCreating local XML from merged.xml.gz...")
+
+    with gzip.open(OUTPUT_XML_GZ, "rb") as f:
+        tree = ET.parse(f)
+
+    root = tree.getroot()
+
+    id_to_display = {}
+    for ch in root.findall("channel"):
+        ch_id = ch.attrib.get("id")
+        display = ch.findtext("display-name") or ch_id
+        id_to_display[ch_id] = display
+
+    allowed_ids = set()
+    for ch_id, display in id_to_display.items():
+        if clean_text(display) in local_cleaned:
+            allowed_ids.add(ch_id)
+
+    new_root = ET.Element("tv", attrib=root.attrib)
+
+    for ch in root.findall("channel"):
+        if ch.attrib.get("id") in allowed_ids:
+            new_root.append(ch)
+
+    for prog in root.findall("programme"):
+        if prog.attrib.get("channel") in allowed_ids:
+            new_root.append(prog)
+
+    with gzip.open(OUTPUT_LOCAL_XML_GZ, "wb") as f_out:
+        f_out.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
+        f_out.write(ET.tostring(new_root, encoding="utf-8"))
+
+    print(f"Local XML created: {OUTPUT_LOCAL_XML_GZ}")
+    print(f"Local channels: {len(allowed_ids)}")
+
+# -----------------------------
 # MAIN
 # -----------------------------
 def main():
