@@ -38,7 +38,7 @@ jobs:
 
       - name: Commit and push if changed
         run: |
-          git add merged.xml.gz index.html merge_epg.py
+          git add merged.xml.gz merged_local.xml.gz index.html merge_epg.py
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
